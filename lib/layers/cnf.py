@@ -1,7 +1,11 @@
 import torch
 import torch.nn as nn
 
+#from torchdiffeq import odeint_adjoint_stochastic_end_v2
+from torchdiffeq import odeint_adjoint_stochastic_end_v3
+from torchdiffeq import odeint_adjoint_stochastic_end_normal
 from torchdiffeq import odeint_adjoint as odeint
+#from torchdiffeq import  odeint
 
 from .wrappers.cnf_regularization import RegularizedODEfunc
 
@@ -32,7 +36,8 @@ class CNF(nn.Module):
         self.solver_options = {}
 
     def forward(self, z, logpz=None, integration_times=None, reverse=False):
-
+        #print("integration_times")
+        #print(integration_times)
         if logpz is None:
             _logpz = torch.zeros(z.shape[0], 1).to(z)
         else:
@@ -50,7 +55,9 @@ class CNF(nn.Module):
         reg_states = tuple(torch.tensor(0).to(z) for _ in range(self.nreg))
 
         if self.training:
-            state_t = odeint(
+            state_t = odeint_adjoint_stochastic_end_v3(
+            #state_t = odeint_adjoint_stochastic_end_normal(
+            #state_t = odeint(
                 self.odefunc,
                 (z, _logpz) + reg_states,
                 integration_times.to(z),
@@ -58,6 +65,8 @@ class CNF(nn.Module):
                 rtol=[self.rtol, self.rtol] + [1e20] * len(reg_states) if self.solver == 'dopri5' else self.rtol,
                 method=self.solver,
                 options=self.solver_options,
+                #std = 0.25
+                min_length = 0.25 #0.001
             )
         else:
             state_t = odeint(

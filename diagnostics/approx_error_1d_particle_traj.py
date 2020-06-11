@@ -41,6 +41,7 @@ parser.add_argument('--dims', type=str, default='64-64-64')
 parser.add_argument("--num_blocks", type=int, default=1, help='Number of stacked CNFs.')
 parser.add_argument('--time_length', type=float, default=0.5)
 parser.add_argument('--ntimes', type=int, default=101)
+parser.add_argument('--num_particles', type=int, default=10)
 parser.add_argument('--train_T', type=eval, default=True)
 parser.add_argument("--divergence_fn", type=str, default="brute_force", choices=["brute_force", "approximate"])
 parser.add_argument("--nonlinearity", type=str, default="tanh", choices=odefunc.NONLINEARITIES)
@@ -99,45 +100,21 @@ def normal_log_density(x, mean=0, stdev=1):
     return -0.5 * (np.log(2 * np.pi) + 2 * np.log(stdev) + term * term)
 
 
-#def data_sample(batch_size):
-#    x1 = np.random.randn(batch_size) * np.sqrt(0.4) - 2.8
-#    x2 = np.random.randn(batch_size) * np.sqrt(0.4) - 0.9
-#    x3 = np.random.randn(batch_size) * np.sqrt(0.4) + 2.
-#    xs = np.concatenate([x1[:, None], x2[:, None], x3[:, None]], 1)
-#    k = np.random.randint(0, 3, batch_size)
-#    x = xs[np.arange(batch_size), k]
-#    return torch.tensor(x[:, None]).float().to(device)
-#
-#
-#def data_density(x):
-#    p1 = normal_log_density(x, mean=-2.8, stdev=np.sqrt(0.4))
-#    p2 = normal_log_density(x, mean=-0.9, stdev=np.sqrt(0.4))
-#    p3 = normal_log_density(x, mean=2.0, stdev=np.sqrt(0.4))
-#    return torch.log(p1.exp() / 3 + p2.exp() / 3 + p3.exp() / 3)
-
 def data_sample(batch_size):
-    x1 = np.random.randn(batch_size) *  np.sqrt(0.4) -2.8
-    x2 = np.random.randn(batch_size) *  np.sqrt(0.4) - 0.9
-    x3 = np.random.randn(batch_size) *  np.sqrt(0.4) + 2
-    x4 = np.random.randn(batch_size) *  np.sqrt(0.4) + 5.1
-    x5 = np.random.randn(batch_size) *  np.sqrt(0.4) + 3.4
-
-    xs = np.concatenate([x1[:, None], x2[:, None], x3[:, None], x4[:, None], x5[:, None] ], 1)
-    k = np.random.randint(0, 5, batch_size)
+    x1 = np.random.randn(batch_size) * np.sqrt(0.4) - 2.8
+    x2 = np.random.randn(batch_size) * np.sqrt(0.4) - 0.9
+    x3 = np.random.randn(batch_size) * np.sqrt(0.4) + 2.
+    xs = np.concatenate([x1[:, None], x2[:, None], x3[:, None]], 1)
+    k = np.random.randint(0, 3, batch_size)
     x = xs[np.arange(batch_size), k]
     return torch.tensor(x[:, None]).float().to(device)
 
 
 def data_density(x):
-    p1 = normal_log_density(x, mean= -2.8 ,stdev=np.sqrt(0.4))
-    p2 = normal_log_density(x, mean= -0.9, stdev=np.sqrt(0.4))
-    p3 = normal_log_density(x, mean=  2 ,  stdev=np.sqrt(0.4))
-    p4 = normal_log_density(x, mean=  5.1, stdev=np.sqrt(0.4))
-    p5 = normal_log_density(x, mean=  3.4, stdev=np.sqrt(0.4))
-
-    return torch.log(p1.exp() / 5 + p2.exp() / 5 + p3.exp() / 5 + p4.exp() / 5 + p5.exp() / 5  )
-
-
+    p1 = normal_log_density(x, mean=-2.8, stdev=np.sqrt(0.4))
+    p2 = normal_log_density(x, mean=-0.9, stdev=np.sqrt(0.4))
+    p3 = normal_log_density(x, mean=2.0, stdev=np.sqrt(0.4))
+    return torch.log(p1.exp() / 3 + p2.exp() / 3 + p3.exp() / 3)
 
 
 def model_density(x, model):
@@ -315,6 +292,108 @@ def visualize_times():
             plt.close()
     trajectory_to_video(os.path.join(args.save,'test_times', 'figs'))
 
+def visualize_evolution():
+    model = build_model_tabular(args, 1).to(device)
+    set_cnf_options(args, model)
+
+    checkpt = torch.load(os.path.join(args.save, 'checkpt.pth'))
+    model.load_state_dict(checkpt['state_dict'])
+    model.to(device)
+
+    viz_times = torch.linspace(0., args.time_length , args.ntimes)
+    errors = []
+    viz_times_np = viz_times[1:].detach().cpu().numpy()
+    xx = torch.linspace(-5, 5, args.num_particles).view(-1, 1)
+    xx_np = xx.detach().cpu().numpy()
+    xs,ys = np.meshgrid(xx,viz_times_np)
+    #xx,yy = np.meshgrid(args.num_particles, viz_times_np )
+    #all_evolutions = np.zeros((args.ntimes-1,args.num_particles))
+    all_evolutions = np.zeros((args.num_particles,args.ntimes-1))
+    with torch.no_grad():
+        for i,t in enumerate(tqdm(viz_times[1:])):
+            model.eval()
+            set_cnf_options(args, model)
+            #xx = torch.linspace(-5, 5, args.num_particles).view(-1, 1)
+
+            #generated_p = model_density(xx, model)
+            generated_p=0
+            for cnf in model.chain:
+                xx = xx.to(device)
+                z, delta_logp = cnf(xx, torch.zeros_like(xx),integration_times=torch.Tensor( [ 0, t  ]  ))
+                generated_p = standard_normal_logprob(z) - delta_logp
+
+
+            generated_p = generated_p.detach()
+            #plt.plot(xx.view(-1).cpu().numpy(), generated_p.view(-1).exp().cpu().numpy(), label='Model')
+            cur_evolution=generated_p.view(-1).exp().cpu().numpy()
+
+            #all_evolutions[i]= np.array(cur_evolution)
+            all_evolutions[:,i]= np.array(cur_evolution)
+        #xx = np.array(xx.detach().cpu().numpy())
+        #yy = np.array(yy)
+        plt.figure(dpi=1200)
+        plt.clf()
+        all_evolutions = all_evolutions.astype('float32')
+        print(xs.shape)
+        print(ys.shape)
+        print(all_evolutions.shape)
+        #plt.pcolormesh(ys, xs, all_evolutions)
+        plt.pcolormesh(xs, ys, all_evolutions.transpose())
+
+        utils.makedirs(os.path.join(args.save,'test_times', 'figs'))
+        plt.savefig(os.path.join(args.save,'test_times', 'figs', 'evolution.jpg'.format(i)))
+        plt.close()
+
+
+def visualize_particle_flow():
+    model = build_model_tabular(args, 1).to(device)
+    set_cnf_options(args, model)
+
+    checkpt = torch.load(os.path.join(args.save, 'checkpt.pth'))
+    model.load_state_dict(checkpt['state_dict'])
+    model.to(device)
+
+    viz_times = torch.linspace(0., args.time_length , args.ntimes)
+    errors = []
+    xx = torch.linspace(-5, 5, args.num_particles).view(-1, 1)
+    zs=[]
+    #zs.append(xx.view(-1).cpu().numpy())
+    with torch.no_grad():
+        for i,t in enumerate(tqdm(viz_times[1:])):
+            model.eval()
+            set_cnf_options(args, model)
+
+            #generated_p = model_density(xx, model)
+            generated_p=0
+            for cnf in model.chain:
+                xx = xx.to(device)
+                z, delta_logp = cnf(xx, torch.zeros_like(xx),integration_times=torch.Tensor( [ 0, t  ]  ))
+                generated_p = standard_normal_logprob(z) - delta_logp
+
+            zs.append(z.cpu().numpy())
+
+            #plt.plot(xx.view(-1).cpu().numpy(), generated_p.view(-1).exp().cpu().numpy(), label='Model')
+
+            #plt.savefig(os.path.join(args.save,'test_times', 'figs', '{:04d}.jpg'.format(i)))
+            #plt.close()
+
+    zs=np.array(zs).reshape(args.ntimes-1,args.num_particles)
+    viz_t = viz_times[1:].numpy()
+    #print(zs)
+    plt.figure(dpi=1200)
+
+    plt.clf()
+    #plt.plot(viz_t , zs[:,0])
+    with sns.color_palette("Blues_d"):
+        plt.plot(viz_t , zs)
+        plt.xlabel("Test Time")
+        #plt.tight_layout()
+        utils.makedirs(os.path.join(args.save,'test_times', 'figs'))
+        plt.savefig(os.path.join(args.save,'test_times', 'figs', 'particle_trajectory.jpg'.format(i)))
+        plt.close()
+
+
+
 def trajectory_to_video(savedir):
     import subprocess
     bashCommand = 'ffmpeg -y -i {} {}'.format(os.path.join(savedir, '%04d.jpg'), os.path.join(savedir, 'traj.mp4'))
@@ -325,6 +404,8 @@ def trajectory_to_video(savedir):
 
 
 if __name__ == '__main__':
-    train()
-    evaluate()
-    visualize_times()
+    #train()
+    #evaluate()
+    #visualize_times()
+    visualize_particle_flow()
+    #visualize_evolution()
