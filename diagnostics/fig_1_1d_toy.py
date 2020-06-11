@@ -175,8 +175,8 @@ if __name__ == '__main__':
         save_fig1_path = os.path.join(args.resume, 'fig1_ani')
         logger.info('Plotting fig1 to {}'.format(save_fig1_path))
         data_samples = toy_data.inf_train_gen(args.data, batch_size=1)
-        save_fig1_1d_icml_no_top_or_bottom(model, data_samples, save_fig1_path, device=device,itr=0)
-        #save_fig1_1d_icml(model, data_samples, save_fig1_path, device=device,itr=0)
+        #save_fig1_1d_icml_no_top_or_bottom(model, data_samples, save_fig1_path, device=device,itr=0)
+        save_fig1_1d_icml(model, data_samples, save_fig1_path, device=device,itr=0)
         #save_fig1_1d_icml_rev(model, data_samples, save_fig1_path, device=device,itr=0)
         1/0
 
